@@ -1,13 +1,10 @@
-use std::fs;
-
 use actix_files::{Files, NamedFile};
 use actix_web::{
-    dev::Response, get, http::header, web::Path, web::Redirect, web::ServiceConfig, HttpRequest,
-    HttpResponse, Responder,
+    get, http::header, web::Path, web::ServiceConfig, HttpRequest, HttpResponse, Responder,
 };
 use base64::{engine::general_purpose, Engine as _};
 use regex::Regex;
-use rsa::{pkcs8::DecodePublicKey, traits::PaddingScheme, Pkcs1v15Encrypt, RsaPublicKey};
+use rsa::{pkcs8::DecodePublicKey, Pkcs1v15Encrypt, RsaPublicKey};
 use serde::{Deserialize, Serialize};
 use shuttle_actix_web::ShuttleActixWeb;
 use url::Url;
@@ -85,7 +82,7 @@ async fn forward_to(req: HttpRequest, path: Path<RedirectRequest>) -> impl Respo
 
     let mut url = match Url::parse(req.uri().to_string().split_at(pos).1) {
         Ok(url) => url,
-        Err(e) => {
+        Err(_e) => {
             return HttpResponse::BadRequest().json(ErrorResponseBody {
                 error: String::from("Only http and https urls are supported"),
             });
@@ -113,7 +110,7 @@ async fn forward_to(req: HttpRequest, path: Path<RedirectRequest>) -> impl Respo
                 .decode(path.public_key.clone().unwrap().as_bytes())
             {
                 Ok(pem) => pem,
-                Err(e) => {
+                Err(_e) => {
                     return HttpResponse::BadRequest().json(ErrorResponseBody {
                         error: String::from("Invalid public key format"),
                     });
@@ -128,7 +125,7 @@ async fn forward_to(req: HttpRequest, path: Path<RedirectRequest>) -> impl Respo
                     ][..],
                     "",
                 ),
-                Err(e) => {
+                Err(_e) => {
                     return HttpResponse::BadRequest().json(ErrorResponseBody {
                         error: String::from("Invalid public key"),
                     });
@@ -137,7 +134,7 @@ async fn forward_to(req: HttpRequest, path: Path<RedirectRequest>) -> impl Respo
 
             let public_key = match RsaPublicKey::from_public_key_pem(pem.as_str()) {
                 Ok(key) => key,
-                Err(e) => {
+                Err(_e) => {
                     return HttpResponse::BadRequest().finish();
                 }
             };
