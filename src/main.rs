@@ -178,11 +178,11 @@ fn extract_code_from_url(url: String) -> String {
 #[shuttle_runtime::main]
 async fn main() -> ShuttleActixWeb<impl FnOnce(&mut ServiceConfig) + Send + Clone + 'static> {
     let config = move |cfg: &mut ServiceConfig| {
-        cfg.service(Files::new("/", "./static").index_file("index.html"))
+        cfg.service(forward_to_secure)
+            .service(forward_to)
+            .service(Files::new("/", "./static").index_file("index.html"))
             .service(Files::new("/dist", "./static/dist"))
-            .service(index)
-            .service(forward_to_secure)
-            .service(forward_to);
+            .service(index);
     };
 
     Ok(config.into())
