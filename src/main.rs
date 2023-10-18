@@ -104,7 +104,11 @@ async fn forward_to(req: HttpRequest, path: Path<RedirectRequest>) -> impl Respo
             .finish(),
 
         "http" => {
-            let code = extract_code_from_url(url.clone().to_string());
+            let code = if url.clone().to_string().contains("?") {
+                extract_code_from_url(url.clone().to_string())
+            } else {
+                String::from("")
+            };
 
             let decoded_pem = match general_purpose::URL_SAFE_NO_PAD
                 .decode(path.public_key.clone().unwrap().as_bytes())
@@ -178,11 +182,14 @@ fn extract_code_from_url(url: String) -> String {
 #[shuttle_runtime::main]
 async fn main() -> ShuttleActixWeb<impl FnOnce(&mut ServiceConfig) + Send + Clone + 'static> {
     let config = move |cfg: &mut ServiceConfig| {
-        cfg.service(forward_to_secure)
+        cfg.service(Files::new("/dist", "./static/dist")) // serving files should be the first
+            // service or it doesn't serve the files at all
+            .service(forward_to_secure)
             .service(forward_to)
-            .service(Files::new("/", "./static").index_file("index.html"))
-            .service(Files::new("/dist", "./static/dist"))
-            .service(index);
+            .service(index)
+            // serving files from '/' will prevent any other services after it from functioning properly
+            // Ensure that this is the last service to be loaded
+            .service(Files::new("/", "./static").index_file("index.html"));
     };
 
     Ok(config.into())
