@@ -27,6 +27,13 @@ async fn index() -> impl Responder {
         .map_err(actix_web::error::ErrorInternalServerError)
 }
 
+#[get("/google7c263617a6b5ad39.html")]
+async fn verify_site() -> impl Responder {
+    NamedFile::open_async("./static/google7c263617a6b5ad39.html")
+        .await
+        .map_err(actix_web::error::ErrorInternalServerError)
+}
+
 #[get("/secure/{tail:.*}")]
 async fn forward_to_secure(req: HttpRequest, path: Path<RedirectRequest>) -> impl Responder {
     let pos_regex = regex::Regex::new(r"http").unwrap();
@@ -180,6 +187,7 @@ async fn main() -> ShuttleActixWeb<impl FnOnce(&mut ServiceConfig) + Send + Clon
     let config = move |cfg: &mut ServiceConfig| {
         cfg.service(Files::new("/dist", "./static/dist"))
             .service(index)
+            .service(verify_site)
             .service(forward_to_secure)
             .service(forward_to);
     };
