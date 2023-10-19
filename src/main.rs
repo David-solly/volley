@@ -1,12 +1,21 @@
+use std::{collections::HashMap, hash::Hash, sync::Arc};
+
 use actix_files::{Files, NamedFile};
 use actix_web::{
-    get, http::header, web::Path, web::ServiceConfig, HttpRequest, HttpResponse, Responder,
+    get,
+    http::header,
+    put,
+    web::ServiceConfig,
+    web::{self, Path},
+    HttpRequest, HttpResponse, Responder,
 };
 use base64::{engine::general_purpose, Engine as _};
 use regex::Regex;
 use rsa::{pkcs8::DecodePublicKey, Pkcs1v15Encrypt, RsaPublicKey};
 use serde::{Deserialize, Serialize};
+use sha256::{digest, try_digest};
 use shuttle_actix_web::ShuttleActixWeb;
+use tokio::sync::Mutex;
 use url::Url;
 
 #[derive(Deserialize)]
@@ -14,10 +23,30 @@ struct RedirectRequest {
     public_key: Option<String>,
     tail: String,
 }
+#[derive(Debug, Deserialize)]
+struct ImminentRequest {
+    code: Option<String>,
+    state: Option<String>,
+}
 
 #[derive(Serialize)]
 struct ErrorResponseBody {
     error: String,
+}
+
+#[derive(Serialize)]
+struct ResponseBody {
+    message: String,
+}
+
+#[derive(Serialize, Clone, Debug, Deserialize)]
+struct ImminentRecord {
+    url: String,
+    base64_public_key: String,
+}
+#[derive(Debug, Clone)]
+struct State {
+    redirect_map: Arc<Mutex<HashMap<String, ImminentRecord>>>,
 }
 
 #[get("/")]
@@ -27,7 +56,77 @@ async fn index() -> impl Responder {
         .map_err(actix_web::error::ErrorInternalServerError)
 }
 
-#[get("/secure/{tail:.*}")]
+#[put("/imminent/{public_key}/{tail:.*}")]
+async fn index_register_secure(
+    path: Path<RedirectRequest>,
+    state: web::Data<State>,
+) -> impl Responder {
+    let public_key = match path.public_key.clone() {
+        Some(key) => key,
+        None => {
+            return HttpResponse::BadRequest().json(ErrorResponseBody {
+                error: String::from("No public key found"),
+            });
+        }
+    };
+    let hash_of_public_key = match sha256::try_digest(public_key) {
+        Ok(hash) => hash,
+        Err(_e) => {
+            return HttpResponse::BadRequest().json(ErrorResponseBody {
+                error: String::from("Invalid public key"),
+            });
+        }
+    };
+
+    let mut redirect_map = state.redirect_map.lock().await;
+    redirect_map.insert(
+        hash_of_public_key,
+        ImminentRecord {
+            url: path.tail.clone(),
+            base64_public_key: path.public_key.clone().unwrap(),
+        },
+    );
+    HttpResponse::Ok().finish()
+}
+#[get("/imminent/oauth")]
+async fn process_immenent_request(
+    req: HttpRequest,
+    query: web::Query<ImminentRequest>,
+    state: web::Data<State>,
+) -> impl Responder {
+    //get the query string, state
+    match req.uri().query() {
+        Some(_) => {}
+        None => {
+            return HttpResponse::UnprocessableEntity().json(ErrorResponseBody {
+                error: String::from("No query string found"),
+            });
+        }
+    };
+    println!("query: {:?}", query);
+    let hash = match query.state.clone() {
+        Some(hash) => hash,
+        None => {
+            return HttpResponse::UnprocessableEntity().json(ErrorResponseBody {
+                error: String::from("No code found"),
+            });
+        }
+    };
+    let mut redirect_map = state.redirect_map.lock().await;
+    let redirect_url_from_map = match redirect_map.get(&hash) {
+        Some(url) => url,
+        None => {
+            return HttpResponse::UnprocessableEntity().json(ErrorResponseBody {
+                error: String::from("No redirect url found"),
+            });
+        }
+    };
+    HttpResponse::Ok().json(ResponseBody {
+        message: String::from(query_string),
+    })
+}
+
+#[get("/https/{tail:.*}")]
 async fn forward_to_secure(req: HttpRequest, path: Path<RedirectRequest>) -> impl Responder {
     let pos_regex = regex::Regex::new(r"http").unwrap();
     let pos = match pos_regex.find(req.uri().to_string().as_str()) {
@@ -181,9 +280,15 @@ fn extract_code_from_url(url: String) -> String {
 
 #[shuttle_runtime::main]
 async fn main() -> ShuttleActixWeb<impl FnOnce(&mut ServiceConfig) + Send + Clone + 'static> {
+    let state = State {
+        redirect_map: Arc::new(Mutex::new(HashMap::new())),
+    };
     let config = move |cfg: &mut ServiceConfig| {
-        cfg.service(Files::new("/dist", "./static/dist")) // serving files should be the first
+        cfg.app_data(state)
+            .service(Files::new("/dist", "./static/dist")) // serving files should be the first
             // service or it doesn't serve the files at all
+            .service(process_immenent_request)
+            .service(index_register_secure)
             .service(forward_to_secure)
             .service(forward_to)
             .service(index)

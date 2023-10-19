@@ -11,6 +11,7 @@ rand = "0.8.5"
 regex = "1.10.0"
 rsa = "0.9.2"
 serde = { version = "1.0.188", features = ["derive"] }
+sha256 = "1.4.0"
 shuttle-actix-web = "0.29.0"
 shuttle-runtime = "0.29.0"
 tokio = "1.26.0"
